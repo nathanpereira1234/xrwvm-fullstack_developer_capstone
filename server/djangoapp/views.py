@@ -1,5 +1,4 @@
 # Uncomment the required imports before adding the code
-
 from django.shortcuts import render
 from django.http import HttpResponseRedirect, HttpResponse
 from django.contrib.auth.models import User
@@ -14,6 +13,7 @@ import logging
 import json
 from django.views.decorators.csrf import csrf_exempt
 from .populate import initiate
+from .models import CarMake, CarModel
 
 
 # Get an instance of a logger
@@ -81,15 +81,97 @@ def registration(request):
 # a list of dealerships
 # def get_dealerships(request):
 # ...
+def get_cars(request):
+    count = CarMake.objects.filter().count()
+    print(count)
+    if count == 0:
+        initiate()
+    car_models = CarModel.objects.select_related('car_make')
+    cars = []
+    for car_model in car_models:
+        cars.append(
+            {
+                "CarModel": car_model.name,
+                "CarMake": car_model.car_make.name
+            }
+        )
+    return JsonResponse({"CarModels": cars})
 
 # Create a `get_dealer_reviews` view to render the reviews of a dealer
 # def get_dealer_reviews(request,dealer_id):
 # ...
-
+def get_dealerships(request, state="All"):
+    if state == "All":
+        endpoint = "/fetchDealers"
+    else:
+        endpoint = "/fetchDealers/" + state
+    dealerships = get_request(endpoint)
+    return JsonResponse(
+        {"status": 200, "dealers": dealerships})
 # Create a `get_dealer_details` view to render the dealer details
 # def get_dealer_details(request, dealer_id):
 # ...
+def get_dealer_reviews(request, dealer_id):
+    # If dealer id has been provided
+    if dealer_id:
+        endpoint = "/fetchReviews/dealer/" + str(dealer_id)
+        reviews = get_request(endpoint)
 
+        for review_detail in reviews:
+            # Call analyze_review_sentiments
+            # check if the response is valid
+            response = analyze_review_sentiments(
+                review_detail['review'])
+            print(response)
+
+            if response is not None and 'sentiment' in response:
+                review_detail['sentiment'] = response['sentiment']
+            else:
+                # If there's no sentiment, default to 'neutral'
+                review_detail['sentiment'] = 'neutral'
+
+        return JsonResponse({"status": 200, "reviews": reviews})
+
+    else:
+        return JsonResponse({"status": 400, "message": "Bad Request"})
 # Create a `add_review` view to submit a review
 # def add_review(request):
 # ...
+
+def get_dealer_details(request, dealer_id):
+    if dealer_id:
+        endpoint = "/fetchDealer/" + str(dealer_id)
+        dealership = get_request(endpoint)
+        return JsonResponse({"status": 200, "dealer": dealership})
+    else:
+        return JsonResponse({"status": 400, "message": "Bad Request"})
+
+
+# Create an `add_review` view to submit a review
+def add_review(request):
+    if request.user.is_authenticated:
+        data = json.loads(request.body)
+        print(data)  # Log the incoming data for debugging
+        try:
+            response = post_review(data)
+            if response.get("status") == 200:
+                print("Review posted successfully:", response)
+            return JsonResponse(
+                {
+                    "status": 200,
+                    "message": "Review posted successfully",
+                    "review": data
+                })
+        except Exception as e:
+            print(f"Error in posting review: {e}")
+            return JsonResponse(
+                {
+                    "status": 401,
+                    "message": "Error in posting review"
+                })
+    else:
+        return JsonResponse(
+            {
+                "status": 403,
+                "message": "Unauthorized"
+            })
